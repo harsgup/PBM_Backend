@@ -290,3 +290,66 @@ def reset_job(job_id: int,db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Job reset successfully"}
+
+
+@router.get("/reports/summary", summary="Get candidate summary report for admin")
+def get_summary_report(
+    cycle: str,
+    post_name: str,
+    db: Session = Depends(get_db)
+):
+    results = (
+        db.query(ScreeningJob, Personal)
+        .join(
+            Personal, 
+            ScreeningJob.application_no.collate("utf8mb4_general_ci") == 
+            Personal.application_no.collate("utf8mb4_general_ci")
+        )
+        .filter(
+            ScreeningJob.cycle == cycle,
+            ScreeningJob.post_name == post_name
+        )
+        .all()
+    )
+    
+    total = len(results)
+    if total == 0:
+        return {
+            "status": "empty",
+            "message": f"No candidates found in cycle '{cycle}' for post '{post_name}'.",
+            "data": []
+        }
+        
+    completed = 0
+    data_list = []
+    for sj, p in results:
+        is_completed = bool(sj.verification1_status) and bool(sj.verification2_status) and bool(sj.approver_status)
+        if is_completed:
+            completed += 1
+        data_list.append({
+            "application_no": sj.application_no,
+            "candidate_name": p.C_name,
+            "father_name": p.F_name,
+            "verifier1_status": sj.verifier1_screening_status or "PENDING",
+            "verifier1_remarks": sj.verifier1_remarks or "Action Not Taken",
+            "verifier2_status": sj.verifier2_screening_status or "PENDING",
+            "verifier2_remarks": sj.verifier2_remarks or "Action Not Taken",
+            "approver_status": sj.approver_screening_status or "PENDING",
+            "approver_remarks": sj.approver_remarks or "Action Not Taken",
+            "is_completed": is_completed
+        })
+        
+    if completed < total:
+        return {
+            "status": "incomplete",
+            "message": f"Report cannot be generated. Only {completed} of {total} candidates have been fully processed by verifiers and the approver.",
+            "data": [],
+            "total": total,
+            "completed": completed
+        }
+        
+    return {
+        "status": "ready",
+        "data": data_list
+    }
+
