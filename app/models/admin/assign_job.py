@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, Date, DateTime, Float, ForeignKey, Integer, String, Boolean, UniqueConstraint, func
+from sqlalchemy import JSON, Column, Date, DateTime, Float, ForeignKey, Integer, String, Boolean, UniqueConstraint, func, ForeignKeyConstraint
 from app.database.db import Base
 
 
@@ -122,3 +122,22 @@ class Payment(Base):
     payment_id = Column(String(30),default="-")
     pay_date = Column(Date,nullable=True)
     date_time = Column(DateTime, default=func.now(), onupdate=func.now())
+
+class ScreenedCandidate(Base):
+    __tablename__ = "screened_candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cycle = Column(String(50), nullable=False)
+    post = Column(String(60), nullable=False)
+    application_no = Column(String(12), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['cycle', 'post'],
+            ['technical_committees.cycle', 'technical_committees.post'],
+            ondelete='CASCADE',
+            onupdate='CASCADE',
+            name='fk_screened_candidate_committee'
+        ),
+        UniqueConstraint('cycle', 'post', 'application_no', name='uq_screened_candidate_cycle_post_app'),
+    )

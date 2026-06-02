@@ -3,7 +3,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
-from app.models.admin.assign_job import ScreeningJob, Personal, Education, Experience
+from app.models.admin.assign_job import ScreeningJob, Personal, Education, Experience, ScreenedCandidate
+from app.models.admin.committee import TechnicalCommittee
 from app.models.admin.users import User
 from app.database.db import get_db
 from app.utility.jwt import verify_user
@@ -118,7 +119,11 @@ def get_candidates(
             "father_name": p.F_name,
             # verifier status
             "verifier_status": verifier_data["screening_status"],
-            "verifier_remarks": verifier_data["remarks"]
+            "verifier_remarks": verifier_data["remarks"],
+            "verifier1_status": sj.verifier1_screening_status or "PENDING",
+            "verifier1_remarks": sj.verifier1_remarks or "Action Not Taken",
+            "verifier2_status": sj.verifier2_screening_status or "PENDING",
+            "verifier2_remarks": sj.verifier2_remarks or "Action Not Taken"
         })
     return response
 
@@ -225,6 +230,31 @@ def submit_candidate_review(
         job.approver_status = True
         job.approver_id = user_id
         is_assigned = True
+
+        committee = db.query(TechnicalCommittee).filter(
+            TechnicalCommittee.cycle == job.cycle,
+            TechnicalCommittee.post == job.post_name
+        ).first()
+        if committee:
+            if data.status == 'VERIFIED':
+                existing = db.query(ScreenedCandidate).filter(
+                    ScreenedCandidate.cycle == job.cycle,
+                    ScreenedCandidate.post == job.post_name,
+                    ScreenedCandidate.application_no == job.application_no
+                ).first()
+                if not existing:
+                    sc = ScreenedCandidate(
+                        cycle=job.cycle,
+                        post=job.post_name,
+                        application_no=job.application_no
+                    )
+                    db.add(sc)
+            else:
+                db.query(ScreenedCandidate).filter(
+                    ScreenedCandidate.cycle == job.cycle,
+                    ScreenedCandidate.post == job.post_name,
+                    ScreenedCandidate.application_no == job.application_no
+                ).delete()
         
     if not is_assigned:
         raise HTTPException(
@@ -234,4 +264,148 @@ def submit_candidate_review(
         
     db.commit()
     return {"message": "Review submitted successfully"}
+
+
+@router.get("/reports/administrative-screening", summary="Get administrative screening report for verifier/approver")
+def get_administrative_screening_report(
+    cycle: str,
+    post_name: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(verify_user)
+):
+    from sqlalchemy import text
+    
+    # Fetch post_code from posts table
+    post_code = "N/A"
+    try:
+        post_row = db.execute(
+            text("SELECT post_code FROM posts WHERE post_name = :post_name"), 
+            {"post_name": post_name}
+        ).first()
+        if post_row:
+            post_code = post_row[0]
+    except Exception:
+        pass
+
+    user_id = int(current_user.get("sub"))
+    user_obj = db.query(User).filter(User.id == user_id).first()
+    if not user_obj:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    role = user_obj.role
+    if role not in ["verifier", "approver", "user"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if role == "verifier":
+        query = db.query(ScreeningJob, Personal).join(
+            Personal,
+            ScreeningJob.application_no.collate("utf8mb4_general_ci") ==
+            Personal.application_no.collate("utf8mb4_general_ci")
+        ).filter(
+            ScreeningJob.cycle == cycle,
+            ScreeningJob.post_name == post_name,
+            (ScreeningJob.verifier1_id == user_id) | (ScreeningJob.verifier2_id == user_id)
+        )
+    elif role == "approver":
+        query = db.query(ScreeningJob, Personal).join(
+            Personal,
+            ScreeningJob.application_no.collate("utf8mb4_general_ci") ==
+            Personal.application_no.collate("utf8mb4_general_ci")
+        ).filter(
+            ScreeningJob.cycle == cycle,
+            ScreeningJob.post_name == post_name,
+            ScreeningJob.approver_id == user_id
+        )
+    else:
+        query = db.query(ScreeningJob, Personal).join(
+            Personal,
+            ScreeningJob.application_no.collate("utf8mb4_general_ci") ==
+            Personal.application_no.collate("utf8mb4_general_ci")
+        ).filter(
+            ScreeningJob.cycle == cycle,
+            ScreeningJob.post_name == post_name,
+            (ScreeningJob.verifier1_id == user_id) | (ScreeningJob.verifier2_id == user_id) | (ScreeningJob.approver_id == user_id)
+        )
+
+    results = query.all()
+    total = len(results)
+
+    if total == 0:
+        return {
+            "status": "empty",
+            "message": f"No candidates found in cycle '{cycle}' for post '{post_name}'.",
+            "data": [],
+            "post_code": post_code,
+            "post_name": post_name,
+            "cycle": cycle
+        }
+
+    completed = 0
+    data_list = []
+
+    for sj, p in results:
+        job_status = "PENDING"
+        job_remarks = "Action Not Taken"
+        is_job_completed = False
+
+        if sj.verifier1_id == user_id:
+            job_status = sj.verifier1_screening_status or "PENDING"
+            job_remarks = sj.verifier1_remarks or "Action Not Taken"
+            is_job_completed = bool(sj.verification1_status)
+        elif sj.verifier2_id == user_id:
+            job_status = sj.verifier2_screening_status or "PENDING"
+            job_remarks = sj.verifier2_remarks or "Action Not Taken"
+            is_job_completed = bool(sj.verification2_status)
+        elif sj.approver_id == user_id:
+            job_status = sj.approver_screening_status or "PENDING"
+            job_remarks = sj.approver_remarks or "Action Not Taken"
+            is_job_completed = bool(sj.approver_status)
+
+        if is_job_completed:
+            completed += 1
+
+        category = p.category or "GEN"
+        pwd = p.pwd or "-"
+        exserve = p.exserve or "-"
+        sub_cat = []
+        if pwd.strip().upper() == "YES":
+            sub_cat.append("PwD")
+        if exserve.strip().upper() == "YES":
+            sub_cat.append("Ex-Serviceman")
+        cat_sub = category
+        if sub_cat:
+            cat_sub += " (" + ", ".join(sub_cat) + ")"
+
+        data_list.append({
+            "application_no": sj.application_no,
+            "candidate_name": p.C_name,
+            "father_name": p.F_name,
+            "category_and_subcategory": cat_sub,
+            "status": job_status,
+            "remarks": job_remarks,
+            "is_completed": is_job_completed
+        })
+
+    if completed < total:
+        return {
+            "status": "incomplete",
+            "message": f"Report cannot be generated. Only {completed} of {total} of your allotted candidates have been fully processed by you.",
+            "data": [],
+            "total": total,
+            "completed": completed,
+            "post_code": post_code,
+            "post_name": post_name,
+            "cycle": cycle
+        }
+
+    return {
+        "status": "ready",
+        "post_code": post_code,
+        "post_name": post_name,
+        "cycle": cycle,
+        "user_name": user_obj.name,
+        "user_designation": user_obj.rank,
+        "user_role": role,
+        "data": data_list
+    }
             

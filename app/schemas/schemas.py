@@ -49,6 +49,67 @@ class AssignedJobResponse(BaseModel):
 
 
     class Config:
+        from_attributes = True
+
+# ------------------------------------------------------------------
+# Deepak's code for technical committee
+# ------------------------------------------------------------------
+class TechnicalCommitteeCreate(BaseModel):
+    cycle: str
+    post: str
+    committee_name: str
+    chairman: str
+    lab_rep: str
+    external_member: str
+    subject_expert: str
+
+
+class TechnicalCommitteeResponse(BaseModel):
+    id: int
+    cycle: str
+    post: str
+    committee_name: str
+    chairman: str
+    lab_rep: str
+    external_member: str
+    subject_expert: str
+
+    class Config:
         orm_mode = True
+
+class ScreeningJobSchema(BaseModel):
+    id: int
+    application_no: str
+    cycle: str
+    post_name: str
+    approver_remarks: str | None
+    committee_name:str
+    status: str
+    candidate_name: str | None = None
+    marks: int | None = None
+    remarks: str | None = None
+    
+class TechnicalScreeningCreate(BaseModel):
+    application_no: str
+    cycle:str
+    post_name:str
+    committee_id: int
+    final_marks: int
+    remarks: str | None = None
+
+
+class DocumentRequest(BaseModel):
+    application_no: str
+    doc_type: str
+    doc_name: str
+    doc_for:str
+    
+class ScreeningRequest(BaseModel):
+    cycle: str
+    post_name: str
+    
+    class Config:
+        orm_mode = True
+
 
 
