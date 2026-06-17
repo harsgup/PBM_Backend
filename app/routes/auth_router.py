@@ -5,7 +5,7 @@ from app.database.db import get_db
 from app.models.admin.users import User
 from app.schemas.schemas import  TokenResponse
 from app.utility.security import verify_password, hash_password
-from app.utility.jwt import create_access_token
+from app.utility.jwt import create_access_token, verify_user
 import bcrypt
 from fastapi.security import OAuth2PasswordRequestForm
 
@@ -32,4 +32,17 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "access_token": token,
         "token_type": "bearer"
     }
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_token(user: dict = Depends(verify_user)):
+    token = create_access_token({
+        "sub": user.get("sub"),
+        "role": user.get("role"),
+        "name": user.get("name")
+    })
+    return {
+        "access_token": token,
+        "token_type": "bearer"
+    }
+
 
