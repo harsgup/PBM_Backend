@@ -13,6 +13,7 @@ class SubmitReviewRequest(BaseModel):
     application_no: str
     status: str
     remarks: Optional[str] = None
+    job_id: Optional[int] = None
 
 router = APIRouter(
     prefix = "/candidates",
@@ -203,30 +204,59 @@ def submit_candidate_review(
 ):
     user_id = int(current_user.get("sub"))
     
-    job = db.query(ScreeningJob).filter(ScreeningJob.application_no == data.application_no).first()
+    job = None
+    if data.job_id:
+        job = db.query(ScreeningJob).filter(ScreeningJob.id == data.job_id).first()
+        
+    if not job:
+        # Fallback to finding the job where this user is assigned
+        job = db.query(ScreeningJob).filter(
+            ScreeningJob.application_no == data.application_no,
+            (
+                (ScreeningJob.verifier1_id == user_id) |
+                (ScreeningJob.verifier2_id == user_id) |
+                (ScreeningJob.approver_id == user_id)
+            )
+        ).first()
+
+    if not job:
+        # Final fallback to first matching application number
+        job = db.query(ScreeningJob).filter(ScreeningJob.application_no == data.application_no).first()
+        
     if not job:
         raise HTTPException(status_code=404, detail="Screening job not found")
         
     user_obj = db.query(User).filter(User.id == user_id).first()
     user_role = user_obj.role if user_obj else None
 
+    remarks = data.remarks
+    if not remarks or not remarks.strip():
+        if data.status == "VERIFIED":
+            remarks = "Verified by user"
+        elif data.status == "REJECTED":
+            remarks = "Rejected by user"
+        elif data.status == "ON_HOLD":
+            remarks = "Onhold by user"
+    else:
+        remarks = remarks.strip()
+
     is_assigned = False
     
     if job.verifier1_id == user_id:
         job.verifier1_screening_status = data.status
-        job.verifier1_remarks = data.remarks
+        job.verifier1_remarks = remarks
         job.verification1_status = True
         is_assigned = True
         
     if job.verifier2_id == user_id:
         job.verifier2_screening_status = data.status
-        job.verifier2_remarks = data.remarks
+        job.verifier2_remarks = remarks
         job.verification2_status = True
         is_assigned = True
 
     if user_role == "approver" and job.verification1_status and job.verification2_status:
         job.approver_screening_status = data.status
-        job.approver_remarks = data.remarks
+        job.approver_remarks = remarks
         job.approver_status = True
         job.approver_id = user_id
         is_assigned = True
