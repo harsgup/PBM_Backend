@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database.db import get_db
 from app.models.admin.interview import InterviewCommittee, InterviewCommitteeMember
-from app.schemas.schemas import InterviewCommitteeCreate, InterviewCommitteeResponse
+from app.models.admin.shortlist_candidate_for_interview import ShortlistCandidateForInterview
+from app.models.admin.assign_job import Personal
+from app.schemas.schemas import InterviewCommitteeCreate, InterviewCommitteeResponse, ShortlistedCandidateResponse
 
 router = APIRouter(prefix="/interview", tags=["Interview"])
 
@@ -57,6 +59,12 @@ def save_interview_committee(payload: InterviewCommitteeCreate, db: Session = De
         )
         db.add(member)
 
+    # 3. Connect shortlisted candidates in the same cycle & post to this committee
+    db.query(ShortlistCandidateForInterview).filter(
+        ShortlistCandidateForInterview.cycle == payload.cycle,
+        ShortlistCandidateForInterview.post_name == payload.post_name
+    ).update({ShortlistCandidateForInterview.interview_committee_id: committee.id})
+
     try:
         db.commit()
         db.refresh(committee)
@@ -83,3 +91,48 @@ def get_interview_committee(cycle: str, post_name: str, db: Session = Depends(ge
         )
 
     return committee
+
+@router.get("/committees", response_model=list[InterviewCommitteeResponse])
+def get_all_interview_committees(cycle: str | None = None, post_name: str | None = None, db: Session = Depends(get_db)):
+    query = db.query(InterviewCommittee)
+    if cycle:
+        query = query.filter(InterviewCommittee.cycle == cycle)
+    if post_name:
+        query = query.filter(InterviewCommittee.post_name == post_name)
+    return query.all()
+
+@router.delete("/committee/{id}")
+def delete_interview_committee(id: int, db: Session = Depends(get_db)):
+    committee = db.query(InterviewCommittee).filter(InterviewCommittee.id == id).first()
+    if not committee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview Committee with ID {id} not found."
+        )
+    try:
+        db.delete(committee)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete Interview Committee: {str(e)}"
+        )
+    return {"message": "Interview Committee deleted successfully."}
+
+@router.get("/shortlisted-candidates", response_model=list[ShortlistedCandidateResponse])
+def get_shortlisted_candidates(cycle: str, post_name: str, db: Session = Depends(get_db)):
+    results = db.query(
+        ShortlistCandidateForInterview.application_no,
+        Personal.C_name.label("candidate_name"),
+        Personal.F_name.label("father_name"),
+        Personal.category
+    ).join(
+        Personal,
+        ShortlistCandidateForInterview.application_no == Personal.application_no
+    ).filter(
+        ShortlistCandidateForInterview.cycle == cycle,
+        ShortlistCandidateForInterview.post_name == post_name
+    ).all()
+    
+    return results

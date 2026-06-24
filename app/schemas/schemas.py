@@ -145,3 +145,15 @@ class InterviewCommitteeResponse(BaseModel):
     class Config:
         from_attributes = True
         orm_mode = True
+
+
+class ShortlistedCandidateResponse(BaseModel):
+    application_no: str
+    candidate_name: str | None
+    father_name: str | None
+    category: str | None
+
+    class Config:
+        from_attributes = True
+        orm_mode = True
+

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, ForeignKey
 from app.database.db import Base
 
 class ShortlistCandidateForInterview(Base):
@@ -12,3 +12,5 @@ class ShortlistCandidateForInterview(Base):
     marks = Column(Integer, nullable=True)
     technical_screening_remarks = Column(String(500), nullable=True)
     status = Column(String(50), default="pending")
+    interview_committee_id = Column(Integer, ForeignKey("interview_committees.id", ondelete="SET NULL"), nullable=True)
+
