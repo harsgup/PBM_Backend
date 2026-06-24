@@ -9,6 +9,7 @@ from app.routes.user_router import router as user_router
 from app.routes.file_handling import router as file_handling_router
 from app.routes.shortlisting import router as shortlisting_router
 from app.routes.technical_screening import router as technical_screening_router
+from app.routes.interview_router import router as interview_router
 from app.database.db import init_db
 
 app = FastAPI()
@@ -38,3 +39,4 @@ app.include_router(user_router)
 app.include_router(file_handling_router)
 app.include_router(shortlisting_router)
 app.include_router(technical_screening_router)
+app.include_router(interview_router)

@@ -548,3 +548,85 @@ def delete_technical_committee(
 
     return {"message": "Technical Committee deleted successfully"}
 
+
+@router.get("/dashboard/stats")
+def get_dashboard_stats(
+    cycle: str | None = None,
+    post_name: str | None = None,
+    db: Session = Depends(get_db)
+):
+    # Base query for ScreeningJob
+    sj_query = db.query(ScreeningJob)
+    if cycle:
+        sj_query = sj_query.filter(ScreeningJob.cycle == cycle)
+    if post_name:
+        sj_query = sj_query.filter(ScreeningJob.post_name == post_name)
+
+    total_candidates = sj_query.count()
+    
+    # Verifier 1 assigned/completed
+    v1_assigned = sj_query.filter(ScreeningJob.verifier1_id.isnot(None)).count()
+    v1_completed = sj_query.filter(ScreeningJob.verification1_status == True).count()
+    
+    # Verifier 2 assigned/completed
+    v2_assigned = sj_query.filter(ScreeningJob.verifier2_id.isnot(None)).count()
+    v2_completed = sj_query.filter(ScreeningJob.verification2_status == True).count()
+    
+    # Approver assigned/completed
+    app_assigned = sj_query.filter(ScreeningJob.approver_id.isnot(None)).count()
+    app_completed = sj_query.filter(ScreeningJob.approver_status == True).count()
+
+    # User work stats (verifiers and approvers)
+    users = db.query(User).filter(User.role.in_(["verifier", "approver"])).all()
+    user_stats = []
+    
+    all_jobs = sj_query.all()
+    
+    for u in users:
+        assigned = 0
+        completed = 0
+        
+        if u.role == "verifier":
+            for job in all_jobs:
+                if job.verifier1_id == u.id:
+                    assigned += 1
+                    if job.verification1_status:
+                        completed += 1
+                if job.verifier2_id == u.id:
+                    assigned += 1
+                    if job.verification2_status:
+                        completed += 1
+        elif u.role == "approver":
+            for job in all_jobs:
+                if job.approver_id == u.id:
+                    assigned += 1
+                    if job.approver_status:
+                        completed += 1
+                        
+        pending = assigned - completed
+        rate = round((completed / assigned) * 100, 1) if assigned > 0 else 0.0
+        
+        user_stats.append({
+            "id": u.id,
+            "name": u.name,
+            "role": u.role,
+            "rank": u.rank,
+            "assigned": assigned,
+            "completed": completed,
+            "pending": pending,
+            "completion_rate": rate
+        })
+        
+    return {
+        "overview": {
+            "total_candidates": total_candidates,
+            "v1_assigned": v1_assigned,
+            "v1_completed": v1_completed,
+            "v2_assigned": v2_assigned,
+            "v2_completed": v2_completed,
+            "approver_assigned": app_assigned,
+            "approver_completed": app_completed,
+        },
+        "user_stats": user_stats
+    }
+

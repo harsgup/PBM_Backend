@@ -88,6 +88,9 @@ class ScreeningJobSchema(BaseModel):
     candidate_name: str | None = None
     marks: int | None = None
     remarks: str | None = None
+    category: str | None = None
+    pwd: str | None = None
+    shortlisted: bool | None = None
     
 class TechnicalScreeningCreate(BaseModel):
     application_no: str
@@ -111,5 +114,34 @@ class ScreeningRequest(BaseModel):
     class Config:
         orm_mode = True
 
+class ShortlistRequest(BaseModel):
+    application_nos: list[str]
+    action: str
 
 
+class InterviewMemberSchema(BaseModel):
+    member_type: str
+    name: str
+    designation: str
+    lab_estt: str
+
+    class Config:
+        from_attributes = True
+        orm_mode = True
+
+
+class InterviewCommitteeCreate(BaseModel):
+    cycle: str
+    post_name: str
+    members: list[InterviewMemberSchema]
+
+
+class InterviewCommitteeResponse(BaseModel):
+    id: int
+    cycle: str
+    post_name: str
+    members: list[InterviewMemberSchema]
+
+    class Config:
+        from_attributes = True
+        orm_mode = True
